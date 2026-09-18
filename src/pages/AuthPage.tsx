@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { isSupabaseConfigured, supabase } from '../lib/supabase'
 
 type Mode = 'login' | 'signup' | 'recovery'
@@ -10,6 +10,7 @@ const copy: Record<Mode, { title: string; subtitle: string; submit: string }> = 
 }
 
 export function AuthPage({ mode }: { mode: Mode }) {
+  const navigate = useNavigate()
   const [email, setEmail] = useState(''); const [password, setPassword] = useState('')
   const [message, setMessage] = useState(''); const [error, setError] = useState(''); const [submitting, setSubmitting] = useState(false)
   const content = copy[mode]
@@ -17,10 +18,16 @@ export function AuthPage({ mode }: { mode: Mode }) {
     event.preventDefault(); if (!supabase) return
     setSubmitting(true); setError(''); setMessage('')
     try {
-      if (mode === 'login') { const { error: authError } = await supabase.auth.signInWithPassword({ email, password }); if (authError) throw authError }
+      if (mode === 'login') { const { error: authError } = await supabase.auth.signInWithPassword({ email, password }); if (authError) throw authError; navigate('/hoy', { replace: true }) }
       else if (mode === 'signup') { const { error: authError } = await supabase.auth.signUp({ email, password }); if (authError) throw authError; setMessage('Revisa tu correo para confirmar tu cuenta antes de iniciar sesión.') }
       else { const { error: authError } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/acceso` }); if (authError) throw authError; setMessage('Si existe una cuenta asociada, recibirás instrucciones en tu correo.') }
-    } catch (caughtError) { setError(caughtError instanceof Error ? caughtError.message : 'No se pudo completar la solicitud.') } finally { setSubmitting(false) }
+    } catch (caughtError) {
+      const rawMessage = caughtError instanceof Error ? caughtError.message : ''
+      const normalizedMessage = rawMessage.toLowerCase()
+      if (normalizedMessage.includes('email not confirmed')) setError('Confirma tu correo electrónico antes de iniciar sesión. Revisa tu bandeja de entrada y spam.')
+      else if (normalizedMessage.includes('invalid login credentials')) setError('El correo o la contraseña no son correctos.')
+      else setError(rawMessage || 'No se pudo completar la solicitud.')
+    } finally { setSubmitting(false) }
   }
   return <main className="auth-layout"><section className="auth-card">
     <Link to="/acceso" className="brand"><span className="brand-mark">R</span><span>Rutina</span></Link>

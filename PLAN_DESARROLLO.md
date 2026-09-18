@@ -29,11 +29,15 @@
 - Construir panel “Hoy”, tarjetas de hábito y progreso diario.
 - Resultado: el usuario puede registrar y editar su cumplimiento.
 
+**Estado: implementada.** El panel “Hoy” consulta los hábitos activos y persiste los registros diarios en Supabase.
+
 ## Fase 4 — Historial y métricas
 
 - Calcular racha actual, mejor racha y porcentajes de cumplimiento.
 - Crear historial mensual tipo calendario/heatmap y vista de estadísticas.
 - Resultado: progreso histórico visual y métricas por hábito.
+
+**Estado: implementada.** Historial mensual, heatmap y estadísticas de rachas y cumplimiento disponibles en la aplicación.
 
 ## Fase 5 — Recordatorios e integraciones
 
