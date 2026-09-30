@@ -1,0 +1,22 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  # Vite 7 exige ^20.19.0 || >=22.12.0.
+  NODE_VERSION = "22"
+
+# React Router usa rutas del historial del navegador, no hashes. Sin esta regla, abrir
+# /hoy directamente —o seguir el enlace de recuperación hacia /nueva-contrasena desde el
+# correo— devolvería 404, porque en el servidor solo existe /index.html.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"

@@ -9,13 +9,28 @@ function getClient() {
 }
 
 export async function getActiveHabits(userId: string): Promise<Habit[]> {
-  const { data, error } = await getClient().from('habits').select('id, name, description, tracking_type, unit, target_value, color, icon, sort_order').eq('user_id', userId).eq('is_active', true).order('sort_order')
+  const { data, error } = await getClient()
+    .from('habits')
+    .select('id, name, description, tracking_type, unit, target_value, color, icon, sort_order, created_at')
+    .eq('user_id', userId)
+    .eq('is_active', true)
+    .order('sort_order')
+    .order('created_at')
   if (error) throw error
   return data as Habit[]
 }
 
-export async function getEntriesInRange(userId: string, startDate: string, endDate: string): Promise<DatedHabitEntry[]> {
-  const { data, error } = await getClient().from('habit_entries').select('habit_id, entry_date, completed, numeric_value').eq('user_id', userId).gte('entry_date', startDate).lte('entry_date', endDate)
+export async function getEntriesInRange(
+  userId: string,
+  startDate: string,
+  endDate: string,
+): Promise<DatedHabitEntry[]> {
+  const { data, error } = await getClient()
+    .from('habit_entries')
+    .select('habit_id, entry_date, completed, numeric_value')
+    .eq('user_id', userId)
+    .gte('entry_date', startDate)
+    .lte('entry_date', endDate)
   if (error) throw error
   return data as DatedHabitEntry[]
 }

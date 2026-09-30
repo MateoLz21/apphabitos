@@ -13,6 +13,19 @@ export function addDays(date: Date, amount: number) {
   return result
 }
 
+/** Número de días del rango, ambos extremos incluidos. Devuelve 0 si el rango está invertido. */
+export function daysInclusive(startKey: string, endKey: string) {
+  if (endKey < startKey) return 0
+  const elapsed = dateFromKey(endKey).getTime() - dateFromKey(startKey).getTime()
+  return Math.round(elapsed / 86_400_000) + 1
+}
+
+/** Primer día en que el hábito pudo registrarse, acotado al inicio del rango consultado. */
+export function trackingStartKey(createdAt: string, rangeStartKey: string) {
+  const createdKey = toDateKey(new Date(createdAt))
+  return createdKey > rangeStartKey ? createdKey : rangeStartKey
+}
+
 export function monthBounds(monthKey: string) {
   const [year, month] = monthKey.split('-').map(Number)
   const start = new Date(year, month - 1, 1)
