@@ -1,11 +1,12 @@
-import { BedDouble, Check, CircleCheckBig, CircleDollarSign, Dumbbell, LoaderCircle, Salad, Save } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { BedDouble, Check, CircleCheckBig, CircleDollarSign, Dumbbell, LoaderCircle, Plus, Salad } from 'lucide-react'
+import { useState } from 'react'
 import { HabitCreationPanel } from '../components/HabitCreationPanel'
 import { PendingHabitsNotice } from '../components/PendingHabitsNotice'
 import { useAuth } from '../contexts/auth-context'
 import { useToday } from '../contexts/today-context'
-import { saveHabitEntry } from '../services/habits'
+import { addHabitProgress, saveHabitEntry } from '../services/habits'
 import type { HabitWithEntry } from '../types/habits'
+import { formatAmount, habitProgress, parseAmount, progressLabel } from '../utils/progress'
 
 const icons = {
   'bed-double': BedDouble,
@@ -27,20 +28,11 @@ export function TodayPage() {
   const { entryDate, habits, loading, error: loadError, applyEntry, addHabit } = useToday()
   const [saveError, setSaveError] = useState('')
   const [savingId, setSavingId] = useState<string | null>(null)
-  const [values, setValues] = useState<Record<string, string>>({})
+  // Lo que el usuario está escribiendo en cada hábito. Empieza vacío y se limpia tras registrar.
+  const [drafts, setDrafts] = useState<Record<string, string>>({})
+  // Hábito cuyo campo está en modo «corregir total» en vez de «sumar».
+  const [correctingId, setCorrectingId] = useState<string | null>(null)
   const error = loadError || saveError
-
-  // Los campos numéricos se siembran con lo ya guardado, pero sin pisar lo que el usuario esté
-  // escribiendo en otro hábito cuando la lista se actualiza tras un guardado.
-  useEffect(() => {
-    setValues((current) =>
-      Object.fromEntries(
-        habits
-          .filter((habit) => habit.tracking_type === 'quantitative')
-          .map((habit) => [habit.id, current[habit.id] ?? habit.entry?.numeric_value?.toString() ?? '']),
-      ),
-    )
-  }, [habits])
 
   const completedCount = habits.filter((habit) => habit.entry?.completed).length
   const progress = habits.length ? Math.round((completedCount / habits.length) * 100) : 0
@@ -50,13 +42,17 @@ export function TodayPage() {
   // Se recalcula en cada render, así el saludo se corrige al cruzar el mediodía o la noche con la app abierta.
   const salutation = greeting(new Date().getHours())
 
-  async function persist(habit: HabitWithEntry, numericValue?: number | null, completed?: boolean) {
-    if (!session) return
+  function setDraft(habitId: string, value: string) {
+    setDrafts((current) => ({ ...current, [habitId]: value }))
+  }
+
+  async function run(habit: HabitWithEntry, action: () => Promise<Parameters<typeof applyEntry>[1]>) {
     setSavingId(habit.id)
     setSaveError('')
     try {
-      const entry = await saveHabitEntry({ userId: session.user.id, habit, entryDate, numericValue, completed })
-      applyEntry(habit.id, entry)
+      applyEntry(habit.id, await action())
+      setDraft(habit.id, '')
+      setCorrectingId(null)
     } catch (caughtError) {
       setSaveError(
         caughtError instanceof Error ? caughtError.message : 'No se pudo guardar el hábito. Inténtalo de nuevo.',
@@ -64,6 +60,27 @@ export function TodayPage() {
     } finally {
       setSavingId(null)
     }
+  }
+
+  function toggleBoolean(habit: HabitWithEntry, completed: boolean) {
+    if (!session) return
+    void run(habit, () => saveHabitEntry({ userId: session.user.id, habit, entryDate, completed }))
+  }
+
+  /** En modo normal la cantidad se suma al total del día; en modo corrección lo reemplaza. */
+  function submitAmount(habit: HabitWithEntry) {
+    if (!session) return
+    const correcting = correctingId === habit.id
+    const amount = parseAmount(drafts[habit.id] ?? '', { allowZero: correcting })
+    if (amount === null) {
+      setSaveError(correcting ? 'Escribe el total del día (0 o más).' : 'Escribe una cantidad mayor que 0.')
+      return
+    }
+    void run(habit, () =>
+      correcting
+        ? saveHabitEntry({ userId: session.user.id, habit, entryDate, numericValue: amount })
+        : addHabitProgress({ userId: session.user.id, habit, entryDate, amount }),
+    )
   }
 
   if (loading)
@@ -116,53 +133,97 @@ export function TodayPage() {
         <div className="habit-list">
           {habits.map((habit) => {
             const Icon = icons[habit.icon as keyof typeof icons] ?? CircleCheckBig
-            const isCompleted = Boolean(habit.entry?.completed)
             const isSaving = savingId === habit.id
-            const value = values[habit.id] ?? ''
+            const quantitative = habit.tracking_type === 'quantitative'
+            const state = habitProgress(habit, habit.entry)
+            const isCompleted = state.state === 'done'
+            const correcting = correctingId === habit.id
+            const draft = drafts[habit.id] ?? ''
+            const remaining = Math.max(0, state.target - state.value)
             return (
-              <article key={habit.id} className={`habit-card ${isCompleted ? 'is-completed' : ''}`}>
+              <article
+                key={habit.id}
+                className={`habit-card ${isCompleted ? 'is-completed' : ''} ${state.state === 'partial' ? 'is-partial' : ''}`}
+              >
                 <span className="habit-icon" style={{ color: habit.color, backgroundColor: `${habit.color}1a` }}>
                   <Icon aria-hidden="true" size={23} />
                 </span>
                 <div className="habit-copy">
                   <h3>{habit.name}</h3>
-                  <p>
-                    {habit.tracking_type === 'quantitative'
-                      ? `Meta: ${habit.target_value ?? 0} ${habit.unit ?? ''}`
-                      : habit.description}
-                  </p>
-                  {habit.tracking_type === 'quantitative' && (
-                    <div className="quantity-control">
-                      <input
-                        aria-label={`Valor de ${habit.name}`}
-                        type="number"
-                        min="0"
-                        step="1"
-                        inputMode="numeric"
-                        value={value}
-                        onChange={(event) => setValues((current) => ({ ...current, [habit.id]: event.target.value }))}
-                      />
-                      <span>{habit.unit}</span>
+                  {!quantitative && <p>{habit.description}</p>}
+                  {quantitative && (
+                    <>
+                      <p className="habit-progress-text">
+                        <b>{progressLabel(habit, state)}</b>
+                        {isCompleted
+                          ? state.value > state.target
+                            ? ' · meta superada'
+                            : ''
+                          : state.state === 'partial'
+                            ? ` · faltan ${formatAmount(remaining)}`
+                            : ''}
+                      </p>
+                      <div
+                        className="habit-progress"
+                        role="progressbar"
+                        aria-valuemin={0}
+                        aria-valuemax={state.target}
+                        aria-valuenow={Math.min(state.value, state.target)}
+                        aria-label={`Avance de ${habit.name}`}
+                      >
+                        <span style={{ width: `${Math.round(state.ratio * 100)}%` }} />
+                      </div>
+                      <form
+                        className="quantity-control"
+                        onSubmit={(event) => {
+                          event.preventDefault()
+                          submitAmount(habit)
+                        }}
+                      >
+                        <input
+                          aria-label={correcting ? `Total de hoy de ${habit.name}` : `Cantidad a sumar a ${habit.name}`}
+                          type="number"
+                          min="0"
+                          step="any"
+                          inputMode="decimal"
+                          placeholder={correcting ? 'Total' : '0'}
+                          value={draft}
+                          onChange={(event) => setDraft(habit.id, event.target.value)}
+                        />
+                        <span>{habit.unit}</span>
+                        <button type="submit" className="save-value" disabled={isSaving || draft === ''}>
+                          {isSaving ? (
+                            <LoaderCircle className="spinner" size={17} />
+                          ) : correcting ? (
+                            <Check size={17} />
+                          ) : (
+                            <Plus size={17} />
+                          )}
+                          <span>{correcting ? 'Guardar total' : 'Sumar'}</span>
+                        </button>
+                      </form>
                       <button
                         type="button"
-                        className="save-value"
-                        disabled={isSaving || value === ''}
-                        onClick={() => void persist(habit, Math.round(Number(value)))}
+                        className="correct-link"
+                        onClick={() => {
+                          setCorrectingId(correcting ? null : habit.id)
+                          setDraft(habit.id, correcting ? '' : state.value > 0 ? formatAmount(state.value) : '')
+                          setSaveError('')
+                        }}
                       >
-                        {isSaving ? <LoaderCircle className="spinner" size={17} /> : <Save size={17} />}
-                        <span>Guardar</span>
+                        {correcting ? 'Cancelar corrección' : 'Corregir total de hoy'}
                       </button>
-                    </div>
+                    </>
                   )}
                 </div>
-                {habit.tracking_type === 'boolean' && (
+                {!quantitative && (
                   <button
                     className="check-button"
                     type="button"
                     disabled={isSaving}
                     aria-pressed={isCompleted}
                     aria-label={`${isCompleted ? 'Desmarcar' : 'Marcar'} ${habit.name}`}
-                    onClick={() => void persist(habit, undefined, !isCompleted)}
+                    onClick={() => toggleBoolean(habit, !isCompleted)}
                   >
                     {isSaving ? (
                       <LoaderCircle className="spinner" size={16} />
@@ -171,7 +232,7 @@ export function TodayPage() {
                     )}
                   </button>
                 )}
-                {habit.tracking_type === 'quantitative' && isCompleted && (
+                {quantitative && isCompleted && (
                   <span className="completed-badge">
                     <Check size={15} aria-hidden="true" /> Meta lograda
                   </span>

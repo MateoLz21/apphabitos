@@ -16,6 +16,9 @@ export type TodayContextValue = {
   applyEntry: (habitId: string, entry: HabitEntry) => void
   addHabit: (habit: Habit) => void
   applyPreferences: (preferences: ReminderPreferences) => void
+  /** Nombre del perfil; vacío si la cuenta todavía no lo tiene. */
+  displayName: string
+  applyDisplayName: (name: string) => void
 }
 
 export const TodayContext = createContext<TodayContextValue | null>(null)

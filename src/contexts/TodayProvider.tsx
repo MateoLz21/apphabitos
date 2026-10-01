@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { getReminderPreferences } from '../services/reminders'
 import { getTodayHabits } from '../services/habits'
+import { getProfileName } from '../services/profile'
 import type { Habit, HabitEntry, HabitWithEntry } from '../types/habits'
 import { defaultReminderPreferences, type ReminderPreferences } from '../types/reminders'
 import { toDateKey } from '../utils/dates'
@@ -22,6 +23,7 @@ export function TodayProvider({ children }: { children: ReactNode }) {
   const entryDate = useMemo(() => toDateKey(new Date()), [])
   const [habits, setHabits] = useState<HabitWithEntry[]>([])
   const [preferences, setPreferences] = useState<ReminderPreferences>(defaultReminderPreferences)
+  const [displayName, setDisplayName] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [now, setNow] = useState(() => new Date())
@@ -48,6 +50,20 @@ export function TodayProvider({ children }: { children: ReactNode }) {
     }
   }, [entryDate, userId])
 
+  // El nombre es accesorio: si falla su carga, el resto de la pantalla no debe verse afectado.
+  useEffect(() => {
+    if (!userId) return
+    let active = true
+    getProfileName(userId)
+      .then((name) => {
+        if (active) setDisplayName(name)
+      })
+      .catch(() => undefined)
+    return () => {
+      active = false
+    }
+  }, [userId])
+
   // Sin este latido, quien deje la app abierta a las 19:59 no vería nunca aparecer el aviso.
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), TICK_MS)
@@ -70,8 +86,10 @@ export function TodayProvider({ children }: { children: ReactNode }) {
         setHabits((current) => current.map((item) => (item.id === habitId ? { ...item, entry } : item))),
       addHabit: (habit: Habit) => setHabits((current) => [...current, habit]),
       applyPreferences: setPreferences,
+      displayName,
+      applyDisplayName: setDisplayName,
     }),
-    [entryDate, habits, loading, error, preferences, pendingHabits, reminderDue],
+    [entryDate, habits, loading, error, preferences, pendingHabits, reminderDue, displayName],
   )
 
   return <TodayContext.Provider value={value}>{children}</TodayContext.Provider>

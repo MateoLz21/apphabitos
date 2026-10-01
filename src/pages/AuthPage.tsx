@@ -19,6 +19,7 @@ const copy: Record<Mode, { title: string; subtitle: string; submit: string }> = 
 
 export function AuthPage({ mode }: { mode: Mode }) {
   const navigate = useNavigate()
+  const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [message, setMessage] = useState('')
@@ -37,7 +38,12 @@ export function AuthPage({ mode }: { mode: Mode }) {
         if (authError) throw authError
         navigate('/hoy', { replace: true })
       } else if (mode === 'signup') {
-        const { data, error: authError } = await supabase.auth.signUp({ email, password })
+        const { data, error: authError } = await supabase.auth.signUp({
+          email,
+          password,
+          // El trigger `handle_new_user` copia `full_name` al perfil al crear la cuenta.
+          options: { data: { full_name: name.trim() } },
+        })
         if (authError) throw authError
         // Con la confirmación por correo desactivada en Supabase, el registro ya devuelve sesión.
         if (data.session) navigate('/hoy', { replace: true })
@@ -82,6 +88,20 @@ export function AuthPage({ mode }: { mode: Mode }) {
           </div>
         )}
         <form className="auth-form" onSubmit={handleSubmit}>
+          {mode === 'signup' && (
+            <label>
+              Nombre
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+                maxLength={60}
+                autoComplete="name"
+                placeholder="Cómo quieres que te llamemos"
+              />
+            </label>
+          )}
           <label>
             Correo electrónico
             <input

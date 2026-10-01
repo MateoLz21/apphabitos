@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase'
 import type { Habit, HabitEntry, HabitWithEntry } from '../types/habits'
+import { roundAmount } from '../utils/progress'
 
 function getClient() {
   if (!supabase) throw new Error('Supabase no está configurado.')
@@ -39,7 +40,7 @@ export async function saveHabitEntry(input: {
   const numericValue = input.habit.tracking_type === 'quantitative' ? (input.numericValue ?? null) : null
   const completed =
     input.habit.tracking_type === 'quantitative'
-      ? numericValue !== null && numericValue >= (input.habit.target_value ?? 0)
+      ? numericValue !== null && numericValue > 0 && numericValue >= (input.habit.target_value ?? 0)
       : Boolean(input.completed)
   const { data, error } = await client
     .from('habit_entries')
@@ -57,6 +58,23 @@ export async function saveHabitEntry(input: {
     .single()
   if (error) throw error
   return data as HabitEntry
+}
+
+/**
+ * Suma una cantidad al total del día. El total vigente se lee de la base y no del estado de la
+ * pantalla, para no pisar un avance registrado desde otra pestaña o dispositivo.
+ */
+export async function addHabitProgress(input: { userId: string; habit: Habit; entryDate: string; amount: number }) {
+  const { data, error } = await getClient()
+    .from('habit_entries')
+    .select('numeric_value')
+    .eq('user_id', input.userId)
+    .eq('habit_id', input.habit.id)
+    .eq('entry_date', input.entryDate)
+    .maybeSingle()
+  if (error) throw error
+  const total = roundAmount(Number(data?.numeric_value ?? 0) + input.amount)
+  return saveHabitEntry({ userId: input.userId, habit: input.habit, entryDate: input.entryDate, numericValue: total })
 }
 
 export async function createHabit(input: {

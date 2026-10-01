@@ -1,9 +1,10 @@
-import { AlarmClock, Globe, LoaderCircle } from 'lucide-react'
+import { AlarmClock, CircleUserRound, Globe, LoaderCircle } from 'lucide-react'
 import { useEffect, useState, type FormEvent } from 'react'
 import { AiSettingsCard } from '../components/AiSettingsCard'
 import { useAuth } from '../contexts/auth-context'
 import { useToday } from '../contexts/today-context'
 import { isAppAdmin } from '../services/aiSettings'
+import { saveProfileName } from '../services/profile'
 import { saveReminderPreferences } from '../services/reminders'
 import { deviceTimeZone, timeInZone } from '../utils/reminders'
 
@@ -22,13 +23,39 @@ const COMMON_ZONES = [
 
 export function SettingsPage() {
   const { session } = useAuth()
-  const { preferences, applyPreferences, pendingHabits } = useToday()
+  const { preferences, applyPreferences, pendingHabits, displayName, applyDisplayName } = useToday()
   const [enabled, setEnabled] = useState(preferences.enabled)
   const [reminderTime, setReminderTime] = useState(preferences.reminder_time)
   const [timezone, setTimezone] = useState(preferences.timezone)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+
+  const [nameDraft, setNameDraft] = useState(displayName)
+  const [savingName, setSavingName] = useState(false)
+  const [nameMessage, setNameMessage] = useState('')
+  const [nameError, setNameError] = useState('')
+
+  // El nombre llega del servidor después del primer render; se copia al campo cuando aparece.
+  useEffect(() => {
+    setNameDraft(displayName)
+  }, [displayName])
+
+  async function saveName(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!session) return
+    setSavingName(true)
+    setNameError('')
+    setNameMessage('')
+    try {
+      applyDisplayName(await saveProfileName(session.user.id, nameDraft))
+      setNameMessage('Nombre guardado.')
+    } catch (caughtError) {
+      setNameError(caughtError instanceof Error ? caughtError.message : 'No se pudo guardar el nombre.')
+    } finally {
+      setSavingName(false)
+    }
+  }
 
   const [isAdmin, setIsAdmin] = useState(false)
   const userId = session?.user.id
@@ -69,7 +96,48 @@ export function SettingsPage() {
     <section>
       <p className="eyebrow">Tu cuenta</p>
       <h1>Ajustes</h1>
-      <p className="subtitle">Decide cuándo quieres que la aplicación te recuerde lo que falta.</p>
+      <p className="subtitle">Tu cuenta y los avisos de la aplicación.</p>
+
+      <section className="settings-card">
+        <div className="settings-heading">
+          <CircleUserRound size={20} aria-hidden="true" />
+          <div>
+            <h2>Tu cuenta</h2>
+            <p>El nombre aparece en el encabezado, junto al botón de salir.</p>
+          </div>
+        </div>
+        <form className="settings-form" onSubmit={saveName}>
+          <label>
+            Correo
+            <input type="text" value={session?.user.email ?? ''} readOnly disabled />
+          </label>
+          <label>
+            Nombre
+            <input
+              type="text"
+              value={nameDraft}
+              onChange={(event) => setNameDraft(event.target.value)}
+              maxLength={60}
+              autoComplete="name"
+              placeholder="Cómo quieres que te llamemos"
+              required
+            />
+          </label>
+          {nameError && (
+            <p className="notice notice-error" role="alert">
+              {nameError}
+            </p>
+          )}
+          {nameMessage && (
+            <p className="notice notice-success" role="status">
+              {nameMessage}
+            </p>
+          )}
+          <button className="primary-button" type="submit" disabled={savingName}>
+            {savingName ? 'Guardando…' : 'Guardar nombre'}
+          </button>
+        </form>
+      </section>
 
       <section className="settings-card">
         <div className="settings-heading">

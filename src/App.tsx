@@ -1,4 +1,4 @@
-import { CalendarDays, ChartNoAxesCombined, CircleCheckBig, LogOut, Settings } from 'lucide-react'
+import { CalendarDays, ChartNoAxesCombined, CircleCheckBig, CircleUserRound, LogOut, Settings } from 'lucide-react'
 import { NavLink, Navigate, Outlet, Route, Routes } from 'react-router-dom'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { useAuth } from './contexts/auth-context'
@@ -19,8 +19,12 @@ const navigation = [
 ]
 
 function ApplicationLayout() {
-  const { signOut } = useAuth()
-  const { reminderDue, pendingHabits } = useToday()
+  const { signOut, session } = useAuth()
+  const { reminderDue, pendingHabits, displayName } = useToday()
+  const email = session?.user.email ?? ''
+  const userLabel = displayName || email
+  // En pantallas estrechas solo cabe el nombre de pila o lo que va antes de la arroba.
+  const shortLabel = displayName ? displayName.split(' ')[0] : email.split('@')[0]
   const pendingCount = pendingHabits.length
   return (
     <div className="app-shell">
@@ -31,10 +35,19 @@ function ApplicationLayout() {
             <span className="brand-mark">R</span>
             <span>Rutina</span>
           </NavLink>
-          <button type="button" className="sign-out" onClick={() => void signOut()}>
-            <LogOut size={18} aria-hidden="true" />
-            <span>Salir</span>
-          </button>
+          <div className="topbar-user">
+            {userLabel && (
+              <span className="user-name" title={email}>
+                <CircleUserRound size={18} aria-hidden="true" />
+                <span className="user-name-full">{userLabel}</span>
+                <span className="user-name-short">{shortLabel}</span>
+              </span>
+            )}
+            <button type="button" className="sign-out" onClick={() => void signOut()}>
+              <LogOut size={18} aria-hidden="true" />
+              <span>Salir</span>
+            </button>
+          </div>
         </header>
         <nav className="top-nav" aria-label="Navegación principal">
           {navigation.map(({ to, label, icon: Icon }) => {

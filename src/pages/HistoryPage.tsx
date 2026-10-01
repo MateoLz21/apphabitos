@@ -1,9 +1,10 @@
-import { ChevronLeft, ChevronRight, LoaderCircle } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, CircleDashed, LoaderCircle, Minus } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../contexts/auth-context'
 import { getActiveHabits, getEntriesInRange, type DatedHabitEntry } from '../services/analytics'
 import type { Habit } from '../types/habits'
 import { dateFromKey, daysInclusive, monthBounds, toDateKey, trackingStartKey } from '../utils/dates'
+import { dayLevel, habitProgress, progressLabel } from '../utils/progress'
 
 function currentMonth() {
   const now = new Date()
@@ -17,6 +18,9 @@ function moveMonth(month: string, direction: number) {
 export function HistoryPage() {
   const { session } = useAuth()
   const [month, setMonth] = useState(currentMonth)
+  // Día cuyo detalle se muestra bajo el calendario. Al cambiar de mes se vuelve a hoy si el mes es
+  // el actual; en meses pasados queda sin selección hasta que el usuario pulse un día.
+  const [selectedDay, setSelectedDay] = useState<string | null>(() => toDateKey(new Date()))
   const [habits, setHabits] = useState<Habit[]>([])
   const [entries, setEntries] = useState<DatedHabitEntry[]>([])
   const [loadingHabits, setLoadingHabits] = useState(true)
@@ -83,6 +87,30 @@ export function HistoryPage() {
         ),
     [activeIds, entries],
   )
+  // Registros del mes agrupados por día y hábito: alimentan el color de cada día y el panel de detalle.
+  const entriesByDay = useMemo(() => {
+    const result = new Map<string, Map<string, DatedHabitEntry>>()
+    for (const entry of entries) {
+      if (!activeIds.has(entry.habit_id)) continue
+      if (!result.has(entry.entry_date)) result.set(entry.entry_date, new Map())
+      result.get(entry.entry_date)?.set(entry.habit_id, entry)
+    }
+    return result
+  }, [activeIds, entries])
+
+  function changeMonth(direction: number) {
+    const next = moveMonth(month, direction)
+    setMonth(next)
+    setSelectedDay(next === currentMonth() ? toDateKey(new Date()) : null)
+  }
+
+  /** Hábitos que ya existían ese día, cada uno con su avance. */
+  function dayDetail(dayKey: string) {
+    return habits
+      .filter((habit) => toDateKey(new Date(habit.created_at)) <= dayKey)
+      .map((habit) => ({ habit, progress: habitProgress(habit, entriesByDay.get(dayKey)?.get(habit.id)) }))
+  }
+
   const monthDate = dateFromKey(`${month}-01`)
   const label = new Intl.DateTimeFormat('es-PE', { month: 'long', year: 'numeric' }).format(monthDate)
   const blanks = Array.from({ length: monthDate.getDay() }, (_, index) => index)
@@ -108,20 +136,29 @@ export function HistoryPage() {
   )
   const totalCompleted = Object.values(completedByDay).reduce((total, value) => total + value, 0)
 
+  const selectedDetail = selectedDay ? dayDetail(selectedDay) : []
+  const selectedDone = selectedDetail.filter((item) => item.progress.state === 'done').length
+  const selectedPartial = selectedDetail.filter((item) => item.progress.state === 'partial').length
+  const selectedLabel = selectedDay
+    ? new Intl.DateTimeFormat('es-PE', { weekday: 'long', day: 'numeric', month: 'long' }).format(
+        dateFromKey(selectedDay),
+      )
+    : ''
+
   return (
     <section>
       <p className="eyebrow">Tu constancia</p>
       <h1>Historial</h1>
-      <p className="subtitle">Cada intensidad representa hábitos completados ese día.</p>
+      <p className="subtitle">Pulsa un día para ver qué hiciste. El color indica cuánto avanzaste.</p>
       <section className="calendar-card">
         <div className="month-header">
-          <button type="button" onClick={() => setMonth((value) => moveMonth(value, -1))} aria-label="Mes anterior">
+          <button type="button" onClick={() => changeMonth(-1)} aria-label="Mes anterior">
             <ChevronLeft />
           </button>
           <h2>{label}</h2>
           <button
             type="button"
-            onClick={() => setMonth((value) => moveMonth(value, 1))}
+            onClick={() => changeMonth(1)}
             aria-label="Mes siguiente"
             disabled={month >= currentMonth()}
           >
@@ -147,14 +184,26 @@ export function HistoryPage() {
                 const key = `${month}-${String(day).padStart(2, '0')}`
                 const count = completedByDay[key] ?? 0
                 const expected = expectedByDay[key] ?? 0
-                const level = expected ? Math.min(4, Math.ceil((count / expected) * 4)) : 0
+                // Los avances parciales cuentan por su fracción: un día a medias no se ve vacío.
+                const level = dayLevel(
+                  dayDetail(key).map((item) => item.progress.ratio),
+                  expected,
+                )
+                const isFuture = key > today
                 return (
                   <button
                     type="button"
-                    className={`calendar-day level-${level} ${key === today ? 'is-today' : ''}`}
+                    className={`calendar-day level-${level} ${key === today ? 'is-today' : ''} ${key === selectedDay ? 'is-selected' : ''}`}
                     key={key}
+                    disabled={isFuture}
+                    aria-pressed={key === selectedDay}
+                    onClick={() => setSelectedDay(key)}
                     title={
-                      expected ? `${day}: ${count} de ${expected} hábitos completados` : `${day}: sin hábitos activos`
+                      isFuture
+                        ? `${day}: todavía no llega`
+                        : expected
+                          ? `${day}: ${count} de ${expected} hábitos completados`
+                          : `${day}: sin hábitos activos`
                     }
                   >
                     <span>{day}</span>
@@ -171,6 +220,51 @@ export function HistoryPage() {
           </div>
         )}
       </section>
+      {!loading && (
+        <section className="day-detail" aria-live="polite">
+          {!selectedDay ? (
+            <p className="day-detail-empty">Pulsa un día del calendario para ver su detalle.</p>
+          ) : (
+            <>
+              <h2>Lo que pasó el {selectedLabel}</h2>
+              {selectedDetail.length === 0 ? (
+                <p className="day-detail-empty">Aún no tenías hábitos ese día.</p>
+              ) : (
+                <>
+                  <p className="day-detail-summary">
+                    {selectedDone} {selectedDone === 1 ? 'cumplido' : 'cumplidos'}
+                    {selectedPartial > 0 && `, ${selectedPartial} con avance`}, de {selectedDetail.length}{' '}
+                    {selectedDetail.length === 1 ? 'hábito' : 'hábitos'}
+                  </p>
+                  <ul className="day-detail-list">
+                    {selectedDetail.map(({ habit, progress }) => (
+                      <li key={habit.id} className={`day-detail-item is-${progress.state}`}>
+                        <span className="day-detail-icon" aria-hidden="true">
+                          {progress.state === 'done' ? (
+                            <Check size={15} />
+                          ) : progress.state === 'partial' ? (
+                            <CircleDashed size={15} />
+                          ) : (
+                            <Minus size={15} />
+                          )}
+                        </span>
+                        <span className="day-detail-name">{habit.name}</span>
+                        <span className="day-detail-state">
+                          {habit.tracking_type === 'quantitative' && progress.state !== 'none'
+                            ? progressLabel(habit, progress)
+                            : progress.state === 'done'
+                              ? 'Cumplido'
+                              : 'Sin registrar'}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </>
+          )}
+        </section>
+      )}
       {!loading && (
         <div className="history-summary">
           <strong>{totalCompleted} completados</strong>

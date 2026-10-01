@@ -84,9 +84,11 @@ src/
     reminders.ts           lectura y guardado de preferencias de aviso
     gemini.ts              pide sugerencias a la Edge Function
     aiSettings.ts          configuración de IA para administradores
+    profile.ts             nombre del usuario
   utils/
     dates.ts               claves YYYY-MM-DD en hora local y aritmética de rangos
     reminders.ts           hora actual por zona y disparo del aviso
+    progress.ts            avance de un hábito y nivel de color de un día
   types/                   habits.ts, reminders.ts
 supabase/migrations/       001 esquema y RLS · 002 cola de sugerencias
                            003 triggers updated_at · 004 avisos internos
@@ -129,6 +131,16 @@ usuario tiene un tope de solicitudes cada 24 horas, contado sobre `habit_suggest
 administrador cambia clave, modelo y tope desde Ajustes mediante funciones `security definer`
 que solo devuelven una pista enmascarada. Antes de guardar, la configuración candidata se prueba
 con una llamada real, para que un modelo retirado no deje las sugerencias caídas para todos.
+
+**Avances parciales.** En los hábitos con cantidad, lo que se escribe se **suma** al total del día
+(`addHabitProgress` lee el total vigente de la base antes de sumar). `habit_entries` guarda una
+fila por hábito y día con ese total; no se guarda cada registro por separado. `utils/progress.ts`
+calcula el avance para «Hoy», el aviso de pendientes y el calendario. Rachas y porcentajes siguen
+contando solo días con la meta cumplida.
+
+**Historial por día.** En el calendario cada día se puede pulsar para ver qué hábitos se
+cumplieron, cuáles quedaron con avance y cuáles sin registrar. Es solo de consulta: los días
+pasados no se editan. El color del día pondera los avances parciales por su fracción.
 
 **Avisos de pendientes.** La hora de aviso se compara en la zona horaria que el usuario elige,
 no en la del dispositivo, usando `Intl.DateTimeFormat` con `hourCycle: 'h23'` — `hour12: false`
