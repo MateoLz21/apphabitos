@@ -102,10 +102,3 @@ export async function createHabit(input: {
   if (error) throw error
   return data as Habit
 }
-
-export async function requestHabitSuggestions(input: { userId: string; goal: string }) {
-  const { error } = await getClient()
-    .from('habit_suggestions')
-    .insert({ user_id: input.userId, goal: input.goal.trim(), status: 'pending' })
-  if (error) throw error
-}

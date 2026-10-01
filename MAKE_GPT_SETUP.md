@@ -1,5 +1,10 @@
 # Make + GPT: sugerencias de hábitos
 
+> **Descartado.** Este flujo (Make + GPT para las sugerencias, y Make + Twilio para avisar por
+> WhatsApp) ya no forma parte del alcance. Los recordatorios ahora son avisos dentro de la propia
+> aplicación, y las sugerencias de hábitos se generarán con Gemini. El documento se conserva como
+> referencia de la alternativa evaluada.
+
 Después de ejecutar la migración `002_habit_suggestions.sql`, crea un **Database Webhook** de Supabase para eventos `INSERT` sobre `public.habit_suggestions` y envíalo a un webhook personalizado de Make.
 
 En Make, el escenario debe:

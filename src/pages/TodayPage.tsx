@@ -1,8 +1,10 @@
 import { BedDouble, Check, CircleCheckBig, CircleDollarSign, Dumbbell, LoaderCircle, Salad, Save } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { HabitCreationPanel } from '../components/HabitCreationPanel'
+import { PendingHabitsNotice } from '../components/PendingHabitsNotice'
 import { useAuth } from '../contexts/auth-context'
-import { getTodayHabits, saveHabitEntry } from '../services/habits'
+import { useToday } from '../contexts/today-context'
+import { saveHabitEntry } from '../services/habits'
 import type { HabitWithEntry } from '../types/habits'
 
 const icons = {
@@ -11,11 +13,6 @@ const icons = {
   salad: Salad,
   'circle-dollar-sign': CircleDollarSign,
   'circle-check': CircleCheckBig,
-}
-
-function localDate() {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 }
 
 /** Saludo según la hora local del dispositivo. */
@@ -27,39 +24,23 @@ function greeting(hour: number) {
 
 export function TodayPage() {
   const { session } = useAuth()
-  const entryDate = useMemo(localDate, [])
-  const [habits, setHabits] = useState<HabitWithEntry[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const { entryDate, habits, loading, error: loadError, applyEntry, addHabit } = useToday()
+  const [saveError, setSaveError] = useState('')
   const [savingId, setSavingId] = useState<string | null>(null)
   const [values, setValues] = useState<Record<string, string>>({})
-  const hasLoaded = useRef(false)
+  const error = loadError || saveError
 
-  const loadHabits = useCallback(async () => {
-    if (!session) return
-    if (!hasLoaded.current) setLoading(true)
-    setError('')
-    try {
-      const result = await getTodayHabits(session.user.id, entryDate)
-      setHabits(result)
-      setValues(
-        Object.fromEntries(
-          result
-            .filter((habit) => habit.tracking_type === 'quantitative')
-            .map((habit) => [habit.id, habit.entry?.numeric_value?.toString() ?? '']),
-        ),
-      )
-      hasLoaded.current = true
-    } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : 'No se pudieron cargar tus hábitos.')
-    } finally {
-      setLoading(false)
-    }
-  }, [entryDate, session])
-
+  // Los campos numéricos se siembran con lo ya guardado, pero sin pisar lo que el usuario esté
+  // escribiendo en otro hábito cuando la lista se actualiza tras un guardado.
   useEffect(() => {
-    void loadHabits()
-  }, [loadHabits])
+    setValues((current) =>
+      Object.fromEntries(
+        habits
+          .filter((habit) => habit.tracking_type === 'quantitative')
+          .map((habit) => [habit.id, current[habit.id] ?? habit.entry?.numeric_value?.toString() ?? '']),
+      ),
+    )
+  }, [habits])
 
   const completedCount = habits.filter((habit) => habit.entry?.completed).length
   const progress = habits.length ? Math.round((completedCount / habits.length) * 100) : 0
@@ -72,12 +53,14 @@ export function TodayPage() {
   async function persist(habit: HabitWithEntry, numericValue?: number | null, completed?: boolean) {
     if (!session) return
     setSavingId(habit.id)
-    setError('')
+    setSaveError('')
     try {
       const entry = await saveHabitEntry({ userId: session.user.id, habit, entryDate, numericValue, completed })
-      setHabits((current) => current.map((item) => (item.id === habit.id ? { ...item, entry } : item)))
+      applyEntry(habit.id, entry)
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : 'No se pudo guardar el hábito. Inténtalo de nuevo.')
+      setSaveError(
+        caughtError instanceof Error ? caughtError.message : 'No se pudo guardar el hábito. Inténtalo de nuevo.',
+      )
     } finally {
       setSavingId(null)
     }
@@ -112,6 +95,8 @@ export function TodayPage() {
         </div>
       </section>
 
+      <PendingHabitsNotice />
+
       {error && (
         <div className="notice notice-error" role="alert">
           {error}
@@ -121,12 +106,7 @@ export function TodayPage() {
         <h2>Hábitos de hoy</h2>
         <span>{completedCount} completados</span>
       </div>
-      {session && (
-        <HabitCreationPanel
-          userId={session.user.id}
-          onCreated={(habit) => setHabits((current) => [...current, habit])}
-        />
-      )}
+      {session && <HabitCreationPanel userId={session.user.id} onCreated={addHabit} />}
       {habits.length === 0 ? (
         <div className="placeholder-card">
           <h2>Aún no hay hábitos activos</h2>

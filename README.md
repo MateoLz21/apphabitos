@@ -45,7 +45,12 @@ redirección, sigue [`SUPABASE_SETUP.md`](SUPABASE_SETUP.md).
 
 La clave `anon` puede vivir en el frontend: el aislamiento entre usuarios lo garantizan las
 políticas RLS, no el secreto de la clave. La clave `service_role` **nunca** va al frontend ni
-al repositorio — solo dentro de Make, según [`MAKE_GPT_SETUP.md`](MAKE_GPT_SETUP.md).
+al repositorio.
+
+> **La clave de Gemini no es una variable de entorno del frontend.** Es una sola para toda la
+> aplicación y vive en el servidor, en la tabla `app_settings`. El administrador la cambia desde
+> Ajustes > Inteligencia artificial; el navegador nunca la recibe. Ver
+> [`SUPABASE_SETUP.md`](SUPABASE_SETUP.md).
 
 ## Scripts
 
@@ -54,24 +59,39 @@ al repositorio — solo dentro de Make, según [`MAKE_GPT_SETUP.md`](MAKE_GPT_SE
 | `npm run dev` | Servidor de desarrollo con HMR |
 | `npm run build` | `tsc -b` y luego el build de producción a `dist/` |
 | `npm run lint` | ESLint 9 sobre todo el proyecto |
+| `npm run format` | Prettier sobre `src` (`format:check` solo verifica) |
 | `npm run preview` | Sirve `dist/` para revisar el build |
 
 ## Estructura
 
 ```
 src/
-  lib/supabase.ts          cliente y flag de configuración
+  lib/
+    supabase.ts            cliente y flag de configuración
+    functions.ts           invocación de Edge Functions con mensajes de error legibles
   contexts/
     auth-context.ts        contexto y hook useAuth
     AuthContext.tsx        proveedor que escucha onAuthStateChange
-  components/              ProtectedRoute, PlaceholderPage, HabitCreationPanel
-  pages/                   AuthPage, UpdatePasswordPage, TodayPage, HistoryPage, StatisticsPage
+    today-context.ts       contexto y hook useToday
+    TodayProvider.tsx      hábitos de hoy y preferencias de aviso, compartidos entre rutas
+  components/              ProtectedRoute, HabitCreationPanel, PendingHabitsNotice,
+                           AiSettingsCard
+  pages/                   AuthPage, UpdatePasswordPage, TodayPage, HistoryPage,
+                           StatisticsPage, SettingsPage
   services/
     habits.ts              lectura y escritura de hábitos y registros diarios
     analytics.ts           consultas por rango para historial y métricas
-  utils/dates.ts           claves YYYY-MM-DD en hora local y aritmética de rangos
-  types/habits.ts          tipos compartidos
-supabase/migrations/       001 esquema y RLS · 002 cola de sugerencias · 003 triggers updated_at
+    reminders.ts           lectura y guardado de preferencias de aviso
+    gemini.ts              pide sugerencias a la Edge Function
+    aiSettings.ts          configuración de IA para administradores
+  utils/
+    dates.ts               claves YYYY-MM-DD en hora local y aritmética de rangos
+    reminders.ts           hora actual por zona y disparo del aviso
+  types/                   habits.ts, reminders.ts
+supabase/migrations/       001 esquema y RLS · 002 cola de sugerencias
+                           003 triggers updated_at · 004 avisos internos
+                           005 configuración de IA y administradores
+supabase/functions/        suggest-habits: llama a Gemini con la clave del servidor
 ```
 
 ### Rutas
@@ -98,6 +118,23 @@ hábito creado ayer y cumplido ayer marca 100 %, no 3 %.
 **Rachas.** El día en curso sin marcar no rompe la racha: si hoy todavía no está registrado
 se cuenta desde ayer. Así la racha no aparece en cero a las 00:01.
 
+**Una sola clave de Gemini, en el servidor.** La clave y el modelo están en `app_settings`, una
+tabla con RLS activado y sin políticas: nadie la lee por la API. La Edge Function `suggest-habits`
+la lee con `service_role`, llama a Gemini y devuelve los hábitos ya saneados (longitudes
+recortadas, `tracking_type` forzado a los dos valores válidos). Como la cuota es compartida, cada
+usuario tiene un tope de solicitudes cada 24 horas, contado sobre `habit_suggestions`.
+
+**Administradores.** Están en `app_admins`, no en una columna de `profiles`: la política de
+`profiles` deja a cada usuario editar su fila, así que un `is_admin` ahí sería autoasignable. El
+administrador cambia clave, modelo y tope desde Ajustes mediante funciones `security definer`
+que solo devuelven una pista enmascarada. Antes de guardar, la configuración candidata se prueba
+con una llamada real, para que un modelo retirado no deje las sugerencias caídas para todos.
+
+**Avisos de pendientes.** La hora de aviso se compara en la zona horaria que el usuario elige,
+no en la del dispositivo, usando `Intl.DateTimeFormat` con `hourCycle: 'h23'` — `hour12: false`
+devuelve `24:00` a medianoche en algunas implementaciones. `TodayProvider` reevalúa cada minuto,
+así que el aviso aparece sin recargar la página.
+
 ## Despliegue
 
 `netlify.toml` ya trae la configuración: build `npm run build`, publicación de `dist/` y la
@@ -114,6 +151,14 @@ enlace de recuperación no podrá volver a la aplicación.
 Fases 0 a 4 implementadas: fundaciones, autenticación completa con recuperación de
 contraseña, registro diario, historial mensual y estadísticas de rachas y cumplimiento.
 
-Pendiente la Fase 5 (recordatorios por WhatsApp y sugerencias de hábitos con IA; `/ajustes`
-sigue siendo un placeholder) y la Fase 6 (pruebas, accesibilidad y despliegue). El detalle
-está en [`PLAN_DESARROLLO.md`](PLAN_DESARROLLO.md).
+De la Fase 5 están hechos los avisos de hábitos pendientes: aparecen en «Hoy» y como contador
+en la barra de navegación, a partir de la hora que el usuario configura en Ajustes, evaluada en
+su zona horaria.
+
+También de la Fase 5, el formulario de metas devuelve de 3 a 5 hábitos generados con Gemini, cada
+uno con un botón para agregarlo al día. Requiere la migración `005` y desplegar la función
+`suggest-habits`.
+
+Los recordatorios por WhatsApp con Make y Twilio quedaron descartados. Pendiente la Fase 6
+(pruebas, accesibilidad y despliegue). El detalle está en
+[`PLAN_DESARROLLO.md`](PLAN_DESARROLLO.md).

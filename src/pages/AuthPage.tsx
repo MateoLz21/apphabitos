@@ -37,9 +37,11 @@ export function AuthPage({ mode }: { mode: Mode }) {
         if (authError) throw authError
         navigate('/hoy', { replace: true })
       } else if (mode === 'signup') {
-        const { error: authError } = await supabase.auth.signUp({ email, password })
+        const { data, error: authError } = await supabase.auth.signUp({ email, password })
         if (authError) throw authError
-        setMessage('Revisa tu correo para confirmar tu cuenta antes de iniciar sesión.')
+        // Con la confirmación por correo desactivada en Supabase, el registro ya devuelve sesión.
+        if (data.session) navigate('/hoy', { replace: true })
+        else setMessage('Revisa tu correo para confirmar tu cuenta antes de iniciar sesión.')
       } else {
         const { error: authError } = await supabase.auth.resetPasswordForEmail(email, {
           redirectTo: `${window.location.origin}/nueva-contrasena`,
@@ -52,6 +54,10 @@ export function AuthPage({ mode }: { mode: Mode }) {
       const normalizedMessage = rawMessage.toLowerCase()
       if (normalizedMessage.includes('email not confirmed'))
         setError('Confirma tu correo electrónico antes de iniciar sesión. Revisa tu bandeja de entrada y spam.')
+      else if (normalizedMessage.includes('rate limit'))
+        setError('Se alcanzó el límite de correos por hora del servidor. Espera unos minutos e inténtalo de nuevo.')
+      else if (normalizedMessage.includes('already registered'))
+        setError('Ya existe una cuenta con ese correo. Inicia sesión o recupera tu contraseña.')
       else if (normalizedMessage.includes('invalid login credentials'))
         setError('El correo o la contraseña no son correctos.')
       else setError(rawMessage || 'No se pudo completar la solicitud.')

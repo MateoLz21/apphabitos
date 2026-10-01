@@ -1,6 +1,7 @@
-import { Lightbulb, Plus, Sparkles, X } from 'lucide-react'
+import { Lightbulb, LoaderCircle, Plus, Sparkles, X } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
-import { createHabit, requestHabitSuggestions } from '../services/habits'
+import { requestGeminiSuggestions, type HabitSuggestion } from '../services/gemini'
+import { createHabit } from '../services/habits'
 import type { Habit } from '../types/habits'
 
 type Props = { userId: string; onCreated: (habit: Habit) => void }
@@ -15,10 +16,14 @@ export function HabitCreationPanel({ userId, onCreated }: Props) {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [asking, setAsking] = useState(false)
+  const [suggestions, setSuggestions] = useState<HabitSuggestion[]>([])
+  const [addingSuggestion, setAddingSuggestion] = useState<string | null>(null)
   function close() {
     setOpen(false)
     setMessage('')
     setError('')
+    setSuggestions([])
   }
   async function submitHabit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -38,21 +43,43 @@ export function HabitCreationPanel({ userId, onCreated }: Props) {
   }
   async function submitGoal(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    setSaving(true)
+    setAsking(true)
+    setError('')
+    setMessage('')
+    setSuggestions([])
+    try {
+      const result = await requestGeminiSuggestions(goal)
+      if (result.length === 0) {
+        setError('Gemini no encontró hábitos para esa meta. Prueba a describirla de otra forma.')
+        return
+      }
+      setSuggestions(result)
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : 'No se pudieron obtener sugerencias.')
+    } finally {
+      setAsking(false)
+    }
+  }
+
+  async function addSuggestion(suggestion: HabitSuggestion) {
+    setAddingSuggestion(suggestion.name)
     setError('')
     setMessage('')
     try {
-      await requestHabitSuggestions({ userId, goal })
-      setGoal('')
-      setMessage('Meta enviada. Make procesará sugerencias con GPT cuando configuremos la automatización.')
+      const habit = await createHabit({
+        userId,
+        name: suggestion.name,
+        trackingType: suggestion.tracking_type,
+        unit: suggestion.unit,
+        targetValue: suggestion.target_value,
+      })
+      onCreated(habit)
+      setSuggestions((current) => current.filter((item) => item.name !== suggestion.name))
+      setMessage(`«${suggestion.name}» agregado a tu día.`)
     } catch (caughtError) {
-      setError(
-        caughtError instanceof Error
-          ? caughtError.message
-          : 'No se pudo enviar la meta. Ejecuta antes la migración de sugerencias.',
-      )
+      setError(caughtError instanceof Error ? caughtError.message : 'No se pudo crear el hábito sugerido.')
     } finally {
-      setSaving(false)
+      setAddingSuggestion(null)
     }
   }
   return (
@@ -125,7 +152,7 @@ export function HabitCreationPanel({ userId, onCreated }: Props) {
               <Lightbulb size={19} />
               <div>
                 <h3>Sugerencias para una meta</h3>
-                <p>Cuando Make + GPT estén configurados, recibirás hábitos recomendados.</p>
+                <p>Describe qué quieres lograr y Gemini propondrá hábitos diarios concretos.</p>
               </div>
             </div>
             <form className="goal-form" onSubmit={submitGoal}>
@@ -135,11 +162,44 @@ export function HabitCreationPanel({ userId, onCreated }: Props) {
                 placeholder="Ej. Quiero mejorar mi concentración"
                 required
                 maxLength={300}
+                disabled={asking}
               />
-              <button type="submit" disabled={saving}>
-                <Sparkles size={17} /> Pedir ideas
+              <button type="submit" disabled={asking}>
+                {asking ? <LoaderCircle className="spinner" size={17} /> : <Sparkles size={17} />}
+                {asking ? 'Pensando…' : 'Pedir ideas'}
               </button>
             </form>
+            {suggestions.length > 0 && (
+              <ul className="suggestion-list">
+                {suggestions.map((suggestion) => (
+                  <li key={suggestion.name} className="suggestion-item">
+                    <div className="suggestion-copy">
+                      <strong>{suggestion.name}</strong>
+                      {suggestion.rationale && <p>{suggestion.rationale}</p>}
+                      <span className="suggestion-meta">
+                        {suggestion.tracking_type === 'quantitative'
+                          ? `Meta diaria: ${suggestion.target_value} ${suggestion.unit}`
+                          : 'Completado / no completado'}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className="suggestion-add"
+                      onClick={() => void addSuggestion(suggestion)}
+                      disabled={addingSuggestion !== null}
+                      aria-label={`Agregar ${suggestion.name}`}
+                    >
+                      {addingSuggestion === suggestion.name ? (
+                        <LoaderCircle className="spinner" size={15} />
+                      ) : (
+                        <Plus size={15} />
+                      )}
+                      Agregar
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
             {error && (
               <p className="notice notice-error" role="alert">
                 {error}

@@ -39,11 +39,23 @@
 
 **Estado: implementada.** Historial mensual, heatmap y estadísticas de rachas y cumplimiento disponibles en la aplicación.
 
-## Fase 5 — Recordatorios e integraciones
+## Fase 5 — Avisos internos e integración con IA
 
-- Implementar preferencias, consentimiento y zona horaria.
-- Documentar y configurar flujos Make + Supabase Webhooks/API + Twilio WhatsApp.
-- Resultado: automatización preparada para avisar hábitos pendientes sin exponer secretos.
+Alcance revisado: los recordatorios por WhatsApp (Make + Twilio) se descartan. En su lugar, la
+propia aplicación avisa de los hábitos que quedan pendientes, y la única integración externa es
+Gemini para sugerir hábitos a partir de una meta.
+
+- Avisar dentro de la aplicación los hábitos del día todavía sin cumplir, a partir de una hora
+  configurable por el usuario y en su zona horaria.
+- Implementar la pantalla de Ajustes sobre `reminder_preferences`.
+- Conectar el formulario de metas a Gemini y mostrar las sugerencias recibidas.
+- Resultado: el usuario recibe recordatorios sin depender de servicios externos, y obtiene
+  sugerencias de hábitos generadas con IA.
+
+**Estado: implementada.** El aviso aparece en «Hoy» y como contador en el menú, a partir de la
+hora que el usuario define en Ajustes. Las sugerencias usan una única clave de Gemini guardada en
+el servidor, que el administrador cambia desde Ajustes; la llamada la hace la Edge Function
+`suggest-habits`. Falta desplegar la función y ejecutar la migración `005` en el proyecto Supabase.
 
 ## Fase 6 — Calidad y despliegue
 
